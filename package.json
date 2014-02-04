@@ -1,9 +1,16 @@
 {
+  "name": "alis-models",
+  "version": "0.0.1",
   "devDependencies": {
     "mocha": "~1.17.1",
     "expect.js": "~0.2.0",
     "validator": "~3.2.1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/westhouseproject/models.git"
+  },
+  "main": "models.js",
   "peerDependencies": {
     "sequelize": "*",
     "mysql": "*"
