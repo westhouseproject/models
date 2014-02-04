@@ -12,6 +12,8 @@ try {
 describe('integration tests', function () {
   var sequelize;
   var models;
+  var ALISDevice;
+  var User;
   beforeEach(function (done) {
     sequelize = new Sequelize(
       settings.database || 'testing',
@@ -22,20 +24,96 @@ describe('integration tests', function () {
       }
     );
     models = require('./models').define(sequelize);
+    ALISDevice = models.ALISDevice;
+    User = models.User;
     done();
   });
 
+  describe('User', function () {
+    beforeEach(function (done) {
+      sequelize
+        .sync({ force: true })
+        .complete(function (err) {
+          if (err) {
+             throw err;
+          }
+          done();
+        })
+    });
+
+    describe('creation', function () {
+      it('should create a new user, given only a google_open_id_token', function (done) {
+        var token = 'asldkjflksadjf'
+        models.User
+          .create({
+            google_open_id_token: token
+          })
+          .complete(function (err, user) {
+            if (err) { throw err; }
+            expect(user.get('google_open_id_token')).to.be(token);
+            done();
+          });
+      });
+    });
+
+    describe('modification', function () {
+      it('should allow for the modification of valid full name', function (done) {
+        var token = 'asldkjflksadjf';
+        models.User
+          .create({
+            google_open_id_token: token,
+            full_name: 'Jane Smith'
+          })
+          .complete(function (err, user) {
+            if (err) { throw err; }
+            expect(user.get('google_open_id_token')).to.be(token);
+            user
+              .updateAttributes({
+                full_name: 'John Smith'
+              })
+              .complete(function (err, user) {
+                if (err) {
+                  throw err;
+                }
+
+                expect(user.get('full_name')).to.be('John Smith');
+                done();
+              });
+          });
+
+
+      });
+
+      it('should not allow for the downgrade to something invalid', function (done) {
+        var token = 'asldkjflksadjf';
+        models.User
+          .create({
+            google_open_id_token: token,
+            email_address: 'jane@something.com'
+          })
+          .complete(function (err, user) {
+            if (err) { throw err; }
+            expect(user.get('google_open_id_token')).to.be(token);
+            user
+              .updateAttributes({
+                email_address: 'whatevs'
+              })
+              .complete(function (err, user) {
+                expect(err == null).to.be(false);
+                done();
+              });
+          });
+      });
+    });
+  });
+
   describe('ALISDevice', function () {
-    var ALISDevice;
-    var User;
     var user;
 
     beforeEach(function (done) {
       sequelize
         .sync({ force: true })
         .success(function () {
-          ALISDevice = models.ALISDevice;
-          User = models.User;
           User
             .create({
               google_open_id: 'asldjflksajf',
