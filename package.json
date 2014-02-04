@@ -1,1 +1,17 @@
-{}
+{
+  "devDependencies": {
+    "mocha": "~1.17.1",
+    "expect.js": "~0.2.0",
+    "validator": "~3.2.1"
+  },
+  "peerDependencies": {
+    "sequelize": "*",
+    "mysql": "*"
+  },
+  "scripts": {
+    "test": "NODE_ENV=testing ./node_modules/mocha/bin/mocha"
+  },
+  "dependencies": {
+    "node-uuid": "~1.4.1"
+  }
+}
