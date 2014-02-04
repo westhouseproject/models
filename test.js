@@ -54,6 +54,26 @@ describe('integration tests', function () {
             done();
           });
       });
+
+      it('should allow the creation of two users with null usernames', function (done) {
+        models
+          .User
+          .create({
+            google_open_id_token: 'asldkjfkldsajf'
+          })
+          .complete(function (err, user1) {
+            if (err) { throw err; }
+            models
+              .User
+              .create({
+                google_open_id_token: 'zcvzncv,nv'
+              })
+              .complete(function (err, user2) {
+                if (err) { throw err; }
+                done();
+              });
+          });
+      });
     });
 
     describe('modification', function () {
@@ -80,8 +100,6 @@ describe('integration tests', function () {
                 done();
               });
           });
-
-
       });
 
       it('should not allow for the downgrade to something invalid', function (done) {
@@ -104,6 +122,64 @@ describe('integration tests', function () {
               });
           });
       });
+
+      it('should always set the username as lowercase', function (done) {
+        models
+          .User
+          .create({
+            google_open_id_token: 'alsdjflasdjf'
+          })
+          .complete(function (err, user) {
+            user.updateAttributes({
+              username: 'ABC'
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
+              expect(user.username).to.be('abc');
+              expect(user.chosen_username).to.be('ABC');
+
+              user.updateAttributes({
+                username: 'BCA'
+              })
+              .complete(function (err, user) {
+                if (err) { throw err; }
+                expect(user.username).to.be('bca');
+                expect(user.chosen_username).to.be('BCA');
+                done();
+              })
+            })
+          });
+      });
+
+      it('should not allow the modification of a username, so that two users have the same username', function (done) {
+        models
+          .User
+          .create({
+            google_open_id_token: '32o4u123u4',
+          })
+          .complete(function (err, user1) {
+            if (err) { throw err; }
+            user1.updateAttributes({
+              username: 'Onething'
+            })
+            .complete(function (err, user1) {
+              if (err) { throw err; }
+              User.create({
+                google_open_id_token: ',cmnv,zxcnv'
+              })
+              .complete(function (err, user2) {
+                if (err) { throw err; }
+                user2.updateAttributes({
+                  username: 'oneThing'
+                })
+                .complete(function (err, user2) {
+                  expect(err != null).to.be(true);
+                  done();
+                });
+              })
+            });
+          })
+      })
     });
   });
 

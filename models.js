@@ -4,6 +4,8 @@ var uuid = require('node-uuid');
 var validator = require('validator');
 
 module.exports.define = function (sequelize) {
+
+  // This is where we will be storing our model classes.
   var retval = {};
 
   /*
@@ -13,7 +15,7 @@ module.exports.define = function (sequelize) {
   var ALISDevice = retval.ALISDevice = sequelize.define('alis_device', {
     uuid_token: {
       type: Sequelize.STRING,
-      notNull: true,
+      allowNull: false,
       validation: {
         isUUID: 4
       }
@@ -47,29 +49,40 @@ module.exports.define = function (sequelize) {
 
   var User = retval.User = sequelize.define('user', {
     google_open_id_token: {
-      type: Sequelize.STRING
-
+      type: Sequelize.STRING,
+      allowNull: false,
+      unique: true
     },
-    username: Sequelize.STRING,
-    normalized_username: Sequelize.STRING,
+    username: {
+      type: Sequelize.STRING,
+      unique: true
+    },
+    chosen_username: {
+      type: Sequelize.STRING,
+      unique: true
+    },
     full_name: Sequelize.STRING,
-    email_address: Sequelize.STRING
+    email_address: Sequelize.STRING,
+    verification_code: Sequelize.STRING
   }, {
     instanceMethods: {
       normalizeUsername: function () {
-        if (this.get('username') != null) {
-          this.normalized_username = username.toLowerCase();
+        if (this.changed('username')) {
+          this.chosen_username = this.username;
+          this.username = this.chosen_username.toLowerCase();
         }
       }
     },
     hooks: {
       beforeValidate: function (user, callback) {
+        user.normalizeUsername();
+
         // TODO: move these callback calls elsewhere.
         if (
           user.previous('username') != null &&
           !/^[a-z0-9_-]{1,35}$/.test(user.get('username'))
         ) {
-          return callback(new Error('A username can contain letters, numbers and'));
+          return callback(new Error('A username can only contain letters, numbers, underscores, and hyphens.'));
         } else if (
           user.previous('full_name') != null &&
           user.get('full_name').length > 200
@@ -85,18 +98,34 @@ module.exports.define = function (sequelize) {
         process.nextTick(function () {
           callback(null);
         })
-      },
-
-      beforeCreate: function (user, callback) {
-        user.normalizeUsername();
-        process.nextTick(function () {
-          callback(null);
-        })
       }
     }
   });
 
-  User.hasMany(ALISDevice, { as: 'ALISDevices' });
+  /*
+   * A join table to aid with many-to-many relationship with users and ALIS
+   * devices.
+   */
+
+  var UserALISDevice = retval.UserALISDevice = sequelize.define('user_alis_device', {
+    is_admin: {
+      type: Sequelize.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    }
+  });
+
+  // Establish the many-to-many relationships.
+
+  User.hasMany(ALISDevice, {
+    as: 'ALISDevice',
+    through: UserALISDevice
+  });
+
+  ALISDevice.hasMany(User, {
+    as: 'User',
+    through: UserALISDevice
+  });
 
   return retval;
 };
