@@ -2,6 +2,8 @@ var Sequelize = require('sequelize');
 var crypto = require('crypto');
 var uuid = require('node-uuid');
 var validator = require('validator');
+var async = require('async');
+var bcrypt = require('bcrypt');
 
 module.exports.define = function (sequelize) {
 
@@ -48,25 +50,53 @@ module.exports.define = function (sequelize) {
    */
 
   var User = retval.User = sequelize.define('user', {
-    google_open_id_token: {
-      type: Sequelize.STRING,
-      allowNull: false,
-      unique: true
-    },
     username: {
       type: Sequelize.STRING,
-      unique: true
+      unique: true,
+      allowNull: false,
+      validate: {
+        is: [ '^[a-z0-9_-]{1,35}$', '' ]
+      }
     },
     chosen_username: {
       type: Sequelize.STRING,
-      unique: true
+      unique: true,
+      allowNull: false,
+      validate: {
+        is: [ '^[A-Za-z0-9_-]{1,35}$', '' ]
+      }
     },
-    full_name: Sequelize.STRING,
-    email_address: Sequelize.STRING,
+    full_name: {
+      type: Sequelize.STRING,
+      validate: {
+        len: [0, 200]
+      }
+    },
+    email_address: {
+      type: Sequelize.STRING,
+      allowNull: false,
+      unique: true,
+      validate: {
+        isEmail: true
+      }
+    },
+    password: {
+      type: Sequelize.STRING,
+      allowNull: false
+    }
+    /*
     verification_code: Sequelize.STRING
+    is_verified: {
+      type: Sequelize.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    }
+    */
   }, {
     instanceMethods: {
       normalizeUsername: function () {
+        // TODO: check for changes in the `chosen_username` column.
+
         if (this.changed('username')) {
           this.chosen_username = this.username;
           this.username = this.chosen_username.toLowerCase();
@@ -75,29 +105,41 @@ module.exports.define = function (sequelize) {
     },
     hooks: {
       beforeValidate: function (user, callback) {
-        user.normalizeUsername();
+        async.parallel([
+          function (callback) {
+            user.normalizeUsername();
+            process.nextTick(function () {
+              callback(null);
+            });
+          },
+          function (callback) {
+            // 6 is a hard limit unfortunately.
+            if (
+              !user.password ||
+              (user.changed('password') && user.password.length < 6)
+            ) {
+              return process.nextTick(function () {
+                callback(new Error('Password is too short'));
+              });
+            }
 
-        // TODO: move these callback calls elsewhere.
-        if (
-          user.previous('username') != null &&
-          !/^[a-z0-9_-]{1,35}$/.test(user.get('username'))
-        ) {
-          return callback(new Error('A username can only contain letters, numbers, underscores, and hyphens.'));
-        } else if (
-          user.previous('full_name') != null &&
-          user.get('full_name').length > 200
-        ) {
-          return callback(new Error('For now, names can\'t be any larger than 200 characters'));
-        } else if (
-          user.previous('email_address') != null &&
-          !validator.isEmail(user.get('email_address'))
-        ) {
-          return callback(new Error('Please provide a valid email address'));
-        }
+            if (user.changed('password')) {
+              return bcrypt.hash(user.password, 12, function (err, hash) {
+                if (err) { return callback(err); }
+                user.password = hash;
+                callback(null);
+              });
+            }
 
-        process.nextTick(function () {
+            callback(null);
+          }
+        ], function (err) {
+          if (err) {
+            return callback(err);
+          }
+
           callback(null);
-        })
+        });
       }
     }
   });

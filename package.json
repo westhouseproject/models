@@ -19,6 +19,8 @@
     "test": "NODE_ENV=testing ./node_modules/mocha/bin/mocha"
   },
   "dependencies": {
-    "node-uuid": "~1.4.1"
+    "node-uuid": "~1.4.1",
+    "async": "~0.2.10",
+    "bcrypt": "~0.7.7"
   }
 }

@@ -14,7 +14,7 @@ describe('integration tests', function () {
   var models;
   var ALISDevice;
   var User;
-  beforeEach(function (done) {
+  before(function (done) {
     sequelize = new Sequelize(
       settings.database || 'testing',
       settings.username || 'root',
@@ -35,119 +35,281 @@ describe('integration tests', function () {
         .sync({ force: true })
         .complete(function (err) {
           if (err) {
-             throw err;
+            throw err;
           }
           done();
-        })
+        });
     });
 
     describe('creation', function () {
-      it('should create a new user, given only a google_open_id_token', function (done) {
-        var token = 'asldkjflksadjf'
-        models.User
-          .create({
-            google_open_id_token: token
-          })
-          .complete(function (err, user) {
-            if (err) { throw err; }
-            expect(user.get('google_open_id_token')).to.be(token);
-            done();
-          });
+      describe('username', function () {
+        // TODO: test whether or not an error is thrown if the username's length
+        //   is not within the range.
+
+        it('should not allow the creation of users with null usernames', function (done) {
+          models
+            .User
+            .create({
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              expect(err.username != null).to.be(true);
+              done();
+            });
+        });
+
+        it('should not allow the creation of users with invalid usernames', function (done) {
+          models
+            .User
+            .create({
+              username: 'invalid username',
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              expect(err.username != null).to.be(true);
+              done();
+            });
+        });
+
+        it('should not allow a user to create an account that has a username already taken', function (done) {
+          var existingUsername = 'validusername';
+          models
+            .User
+            .create({
+              username: existingUsername,
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
+              models
+                .User
+                .create({
+                  username: existingUsername,
+                  email_address: 'valid2@example.com',
+                  password: 'keyboardcat'
+                })
+                .complete(function (err, user) {
+                  expect(err != null).to.be(true);
+                  expect(err.code).to.be('ER_DUP_ENTRY');
+                  done();
+                });
+            });
+        });
+
+        it('should downcase the username', function (done) {
+          var username = 'CamelCase';
+          models
+            .User
+            .create({
+              username: username,
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              expect(user.username).to.be(username.toLowerCase());
+              expect(user.chosen_username).to.be(username);
+              done();
+            });
+        });
       });
 
-      it('should allow the creation of two users with null usernames', function (done) {
-        models
-          .User
-          .create({
-            google_open_id_token: 'asldkjfkldsajf'
-          })
-          .complete(function (err, user1) {
-            if (err) { throw err; }
-            models
-              .User
-              .create({
-                google_open_id_token: 'zcvzncv,nv'
-              })
-              .complete(function (err, user2) {
-                if (err) { throw err; }
-                done();
-              });
-          });
+      describe('email_address', function () { 
+        it('should allow the creation of user with a valid email address', function (done) {
+          var emailAddress = 'valid@example.com'
+          models
+            .User
+            .create({
+              username: 'validusername',
+              password: 'keyboardcat',
+              email_address: emailAddress
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
+              expect(user.email_address).to.be(emailAddress);
+              done();
+            });
+        });
+
+        it('should not allow the creation of a user with a duplicate email address', function (done) {
+          var existingEmailAddress = 'valid@example.com';
+          models
+            .User
+            .create({
+              username: 'validusername',
+              password: 'keyboardcat',
+              email_address: existingEmailAddress
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
+              models
+                .User
+                .create({
+                  username: 'anothername',
+                  password: 'keyboardcat',
+                  email_address: existingEmailAddress
+                })
+                .complete(function (err, user) {
+                  expect(err != null).to.be(true);
+                  expect(err.code).to.be('ER_DUP_ENTRY');
+                  done();
+                });
+            })
+        });
+
+        it('should not allow the creation of users with null email addresses', function (done) {
+          models
+            .User
+            .create({
+              username: 'validusername',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              done();
+            })
+        });
+
+        it('should not allow the creation of users with invalid email addresses', function (done) {
+          models
+            .User
+            .create({
+              username: 'validusername',
+              email_address: 'asldjflsdjf flkjasdlfjsaldfjs',
+              password: 'keyboardcat'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              done();
+            });
+        });
       });
+
+      describe('password', function () {
+        it('should hash a valid password', function (done) {
+          var password = 'keyboardcat'
+          models
+            .User
+            .create({
+              username: 'validusername',
+              email_address: 'valid@example.com',
+              password: password
+            })
+            .complete(function (err, user) {
+              if (err) {
+                throw err;
+              }
+              expect(user.password).to.not.be(password);
+              done();
+            });
+        })
+
+        it('should not allow the creation of a password less than 6 characters', function (done) {
+          models
+            .User
+            .create({
+              username: 'validusername',
+              email_address: 'valid@example.com',
+              password: 'a'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              done();
+            });
+        });
+
+        it('should not allow the creation of a null password', function (done) {
+          models
+            .User
+            .create({
+              username: 'validusername',
+              email_address: 'valid@example.com'
+            })
+            .complete(function (err, user) {
+              expect(err != null).to.be(true);
+              done();
+            });
+        });
+      });
+
     });
 
     describe('modification', function () {
-      it('should allow for the modification of valid full name', function (done) {
-        var token = 'asldkjflksadjf';
-        models.User
-          .create({
-            google_open_id_token: token,
-            full_name: 'Jane Smith'
-          })
-          .complete(function (err, user) {
-            if (err) { throw err; }
-            expect(user.get('google_open_id_token')).to.be(token);
-            user
-              .updateAttributes({
-                full_name: 'John Smith'
-              })
-              .complete(function (err, user) {
-                if (err) {
-                  throw err;
-                }
+      describe('full_name', function () {
+        it('should allow for the modification of valid full name', function (done) {
+          models.User
+            .create({
+              username: 'validusername',
+              email_address: 'valid@example.com',
+              password: 'keyboardcat',
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
 
-                expect(user.get('full_name')).to.be('John Smith');
-                done();
-              });
-          });
+              var name1 = 'Jane Smith';
+
+              user
+                .updateAttributes({
+                  full_name: name1
+                })
+                .complete(function (err, user) {
+                  if (err) {
+                    throw err;
+                  }
+
+                  expect(user.full_name).to.be(name1);
+
+                  var name2 = 'John Doe';
+
+                  user
+                    .updateAttributes({
+                      full_name: name2
+                    })
+                    .complete(function (err, user) {
+                      if (err) {
+                        throw err;
+                      }
+
+                      expect(user.full_name).to.be(name2);
+
+                      done();
+                    });
+                });
+            });
+        });
       });
 
-      it('should not allow for the downgrade to something invalid', function (done) {
-        var token = 'asldkjflksadjf';
-        models.User
-          .create({
-            google_open_id_token: token,
-            email_address: 'jane@something.com'
-          })
-          .complete(function (err, user) {
-            if (err) { throw err; }
-            expect(user.get('google_open_id_token')).to.be(token);
-            user
-              .updateAttributes({
-                email_address: 'whatevs'
-              })
-              .complete(function (err, user) {
-                expect(err == null).to.be(false);
-                done();
-              });
-          });
-      });
+      // TODO: test the modification of an email address.
 
       it('should always set the username as lowercase', function (done) {
         models
           .User
           .create({
-            google_open_id_token: 'alsdjflasdjf'
+            username: 'lowercase',
+            password: 'keyboardcat',
+            email_address: 'valid@example.com'
           })
           .complete(function (err, user) {
-            user.updateAttributes({
-              username: 'ABC'
-            })
-            .complete(function (err, user) {
-              if (err) { throw err; }
-              expect(user.username).to.be('abc');
-              expect(user.chosen_username).to.be('ABC');
+            if (err) { throw err; }
 
-              user.updateAttributes({
-                username: 'BCA'
-              })
-              .complete(function (err, user) {
-                if (err) { throw err; }
-                expect(user.username).to.be('bca');
-                expect(user.chosen_username).to.be('BCA');
-                done();
-              })
-            })
+            var newUsername = 'UPPERCASE';
+
+            models.User.find(user.id).complete(function (err, user) {
+              if (err) { throw err; }
+              if (!user) { throw new Error('No user found'); }
+              user
+                .updateAttributes({ username: newUsername })
+                .complete(function (err, user) {
+                  if (err) { throw err; }
+                  expect(user.username).to.be(newUsername.toLowerCase());
+                  expect(user.chosen_username).to.be(newUsername);
+                  done();
+                })
+            });
           });
       });
 
@@ -155,35 +317,37 @@ describe('integration tests', function () {
         models
           .User
           .create({
-            google_open_id_token: '32o4u123u4',
+            username: 'someone',
+            password: 'keyboardcat',
+            email_address: 'valid1@example.com'
           })
           .complete(function (err, user1) {
             if (err) { throw err; }
-            user1.updateAttributes({
-              username: 'Onething'
-            })
-            .complete(function (err, user1) {
-              if (err) { throw err; }
-              User.create({
-                google_open_id_token: ',cmnv,zxcnv'
+            models
+              .User
+              .create({
+                username: 'another',
+                password: 'keyboardcat',
+                email_address: 'valid2@example.com'
               })
               .complete(function (err, user2) {
                 if (err) { throw err; }
-                user2.updateAttributes({
-                  username: 'oneThing'
-                })
-                .complete(function (err, user2) {
-                  expect(err != null).to.be(true);
-                  done();
-                });
+                user2
+                  .updateAttributes({
+                    username: 'someone'
+                  })
+                  .complete(function (err, user2) {
+                    expect(err != null).to.be(true);
+                    expect(err[0].code).to.be('ER_DUP_ENTRY');
+                    done();
+                  })
               })
-            });
           })
       })
     });
   });
 
-  describe('ALISDevice', function () {
+  xdescribe('ALISDevice', function () {
     var user;
 
     beforeEach(function (done) {
@@ -192,7 +356,7 @@ describe('integration tests', function () {
         .success(function () {
           User
             .create({
-              google_open_id: 'asldjflksajf',
+              username: 'something',
               full_name: 'Jane Smith',
               email_address: 'jane@example.ca'
             })
@@ -210,7 +374,6 @@ describe('integration tests', function () {
         });
     });
     describe('creation', function () {
-
       it('should create a new ALIS device, with a UUID token and "client secret"', function (done) {
         ALISDevice
           .create({})
@@ -240,7 +403,7 @@ describe('integration tests', function () {
       });
     });
 
-    describe('modification', function () {
+    xdescribe('modification', function () {
       it('should not allow the modification of the UUID', function (done) {
         ALISDevice.create({})
           .complete(function (err, alisDevice) {
