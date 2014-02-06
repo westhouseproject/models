@@ -4,6 +4,7 @@ var uuid = require('node-uuid');
 var validator = require('validator');
 var async = require('async');
 var bcrypt = require('bcrypt');
+var bluebird = require('bluebird');
 
 module.exports.define = function (sequelize) {
 
@@ -83,15 +84,13 @@ module.exports.define = function (sequelize) {
     password: {
       type: Sequelize.STRING,
       allowNull: false
-    }
-    /*
-    verification_code: Sequelize.STRING
+    },
+    verification_code: Sequelize.STRING,
     is_verified: {
       type: Sequelize.BOOLEAN,
       allowNull: false,
       defaultValue: false
     }
-    */
   }, {
     instanceMethods: {
       normalizeUsername: function () {
@@ -103,9 +102,45 @@ module.exports.define = function (sequelize) {
         }
       }
     },
+    classMethods: {
+      authenticate: function (username, password) {
+        var def = bluebird.defer();
+
+        this
+          .find({
+            where: [ 'username = ? OR email_address = ?', username, username ]
+          })
+          .complete(function (err, user) {
+            if (err) { return def.reject(err); }
+            if (!user) {
+              return def.reject(new Error('User not found'));
+            }
+            bcrypt.compare(password, user.password, function (err, res) {
+              if (err) {
+                return def.reject(err);
+              }
+              if (!res) {
+                return def.reject(new Error('Password does not match'));
+              }
+
+              def.resolve(user);
+            });
+          });
+
+        return def.promise;
+      }
+    },
     hooks: {
       beforeValidate: function (user, callback) {
         async.parallel([
+          function (callback) {
+            if (user.isNewRecord) {
+              user.verification_code = uuid.v4();
+            }
+            process.nextTick(function () {
+              callback(null);
+            });
+          },
           function (callback) {
             user.normalizeUsername();
             process.nextTick(function () {
@@ -150,6 +185,11 @@ module.exports.define = function (sequelize) {
    */
 
   var UserALISDevice = retval.UserALISDevice = sequelize.define('user_alis_device', {
+    is_owner: {
+      type: Sequelize.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
     is_admin: {
       type: Sequelize.BOOLEAN,
       allowNull: false,

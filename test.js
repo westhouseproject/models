@@ -3,6 +3,7 @@ var fs = require('fs');
 var expect = require('expect.js');
 var validator = require('validator');
 var uuid = require('node-uuid');
+var async = require('async');
 
 var settings = {};
 try {
@@ -236,6 +237,25 @@ describe('integration tests', function () {
         });
       });
 
+      describe('verification', function () {
+        it('should create a verification code', function (done) {
+
+          models
+            .User
+            .create({
+              username: 'validusername',
+              password: 'keyboardcat',
+              email_address: 'valid@example.com'
+            })
+            .complete(function (err, user) {
+              if (err) { throw err; }
+              expect(validator.isUUID(user.verification_code), 4)
+                .to.be(true);
+              expect(user.is_verified).to.be(false);
+              done();
+            });
+        });
+      });
     });
 
     describe('modification', function () {
@@ -345,9 +365,68 @@ describe('integration tests', function () {
           })
       })
     });
+
+    describe('authentication', function () {
+      it('should not authenticate someone if there aren\'t any records in the database', function (done) {
+        models
+          .User
+          .authenticate('nonexistent', 'nonexistent')
+          .then(function () {
+            throw err;
+          })
+          .catch(function (err) {
+            expect(err.message).to.be('User not found');
+            done();
+          });
+      });
+
+      it('should authenticate someone, given a username and password that match a record', function (done) {
+        var aliceCredentials = {
+          username: 'alice',
+          password: 'somepassword',
+          email_address: 'alice@wonderland.com'
+        };
+        async.parallel([
+          function (callback) {
+            models
+              .User
+              .create(aliceCredentials)
+              .complete(function (err, user) {
+                if (err) { return callback(err); }
+                callback(null);
+              })
+          },
+          function (callback) {
+            models
+              .User
+              .create({
+                username: 'bob',
+                password: 'somepassword',
+                email_address: 'valid@example.com'
+              })
+              .complete(function (err, user) {
+                if (err) { return callback(err); }
+                callback(null);
+              })
+          }
+        ], function (err) {
+          if (err) { throw err; }
+          models
+            .User
+            .authenticate(aliceCredentials.username, aliceCredentials.password)
+            .then(function (user) {
+              expect(user.username).to.be(aliceCredentials.username);
+              done();
+            })
+            .catch(function (err) {
+              throw err;
+            });
+        });
+      });
+    });
   });
 
-  xdescribe('ALISDevice', function () {
+  describe('ALISDevice', function () {
     var user;
 
     beforeEach(function (done) {
@@ -358,7 +437,8 @@ describe('integration tests', function () {
             .create({
               username: 'something',
               full_name: 'Jane Smith',
-              email_address: 'jane@example.ca'
+              email_address: 'jane@example.ca',
+              password: 'keyboardcat'
             })
             .success(function (u) {
               user = u;
