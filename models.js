@@ -28,6 +28,51 @@ module.exports.define = function (sequelize) {
     instanceMethods: {
       resetClientSecret: function () {
         this.client_secret = crypto.randomBytes(20).toString('hex');
+      },
+      getOwner: function () {
+        var def = bluebird.defer();
+        UserALISDevice.find({
+          where: [ 'alis_device_id = ? AND privilege = ?', this.id, 'owner' ]
+        }).complete(function (err, join) {
+          if (err) { def.reject(err); }
+          if (!join) {
+            return def.resolve(null);
+          }
+          User.find(join.user_id).complete(function (err, user) {
+            if (err) {
+              return def.reject(err);
+            }
+            def.resolve(user);
+          });
+        });
+        return def.promise;
+      },
+
+      isAdmin: function (user) {
+        var def = bluebird.defer();
+        UserALISDevice.find({
+          where: [
+            'alis_device_id = ? AND user_id = ? AND privilege = ? OR privilege = ?',
+            this.id,
+            user.id,
+            'admin',
+            'owner'
+          ]
+        }).complete(function (err, user) {
+          if (err) { return def.reject(err); }
+          def.resolve(!!user);
+        });
+        return def.promise;
+      },
+
+      /*
+       * Will give limited access to the specified user.
+       */
+
+      giveAccessTo: function (admin, user) {
+        this.isAdmin(admin).then(function (result) {
+
+        })
       }
     },
     hooks: {
@@ -157,7 +202,6 @@ module.exports.define = function (sequelize) {
                 callback(new Error('Password is too short'));
               });
             }
-
             if (user.changed('password')) {
               return bcrypt.hash(user.password, 12, function (err, hash) {
                 if (err) { return callback(err); }
@@ -185,15 +229,36 @@ module.exports.define = function (sequelize) {
    */
 
   var UserALISDevice = retval.UserALISDevice = sequelize.define('user_alis_device', {
-    is_owner: {
-      type: Sequelize.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
-    },
-    is_admin: {
-      type: Sequelize.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
+    privilege: {
+      type: Sequelize.ENUM,
+      values: [ 'owner', 'admin', 'limited' ],
+      defaultValue: 'limited',
+      allowNull: false
+    }
+  }, {
+    hooks: {
+      /*
+      beforeValidate: function (join, callback) {
+        ALISDevice.find(join.alis_device_id).complete(function (err, device) {
+          if (err) { return callback(err); }
+          device.getUsers().then(function (users))
+        });
+      },
+      */
+      beforeCreate: function (join, callback) {
+        this.findAll({
+          where: ['alis_device_id', join.alis_device_id]
+        }).complete(function (err, joins) {
+          if (err) { return callback(err); }
+          // This means that at the time of creating this join, the ALIS device
+          // was an orphan, and therefore, the user associated to this join will
+          // become an owner.
+          if (!joins.length) {
+            join.privilege = 'owner';
+          }
+          callback(null, join)
+        });
+      }
     }
   });
 
@@ -201,12 +266,16 @@ module.exports.define = function (sequelize) {
 
   User.hasMany(ALISDevice, {
     as: 'ALISDevice',
-    through: UserALISDevice
+    through: UserALISDevice,
+    foreignKey: 'alis_device_id'
   });
+
+  // TODO: override the implementation of ALISDevice#addUser from anyone.
 
   ALISDevice.hasMany(User, {
     as: 'User',
-    through: UserALISDevice
+    through: UserALISDevice,
+    foreignKey: 'user_id'
   });
 
   return retval;

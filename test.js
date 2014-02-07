@@ -366,6 +366,129 @@ describe('integration tests', function () {
       })
     });
 
+    describe('relationship', function () {
+      describe('ALISDevice', function () {
+        var user;
+        beforeEach(function (done) {
+          sequelize.sync({ force: true }).complete(function (err) {
+            if (err) { throw err; };
+            models.User.create({
+              username: 'validusername',
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            }).complete(function (err, u) {
+              if (err) {
+                throw err;
+              }
+              user = u;
+              done();
+            });
+          })
+        });
+        describe('creation', function () {
+          it('should do nothing', function (done) {
+            models.UserALISDevice.create({
+              alis_device_id: 1,
+              user_id: 1,
+              something_random: 'asdlkfjalskdjfsaldjfldjkf',
+              another_thing_random: 'alksdjflkasdjflaskjf'
+            }).complete(function (err, user) {
+              if (err) {
+                throw err;
+              }
+              done();
+            });
+          });
+          describe('createALISDevice', function () {
+            it('should create a new ALIS device, and set the user as it\'s owner', function (done) {
+              user.createALISDevice().complete(function (err, device) {
+                if (err) { throw err; }
+                device.getOwner().then(function (u) {
+                  expect(u != null).to.be(true);
+                  expect(u.id).to.be(user.id);
+                  done();
+                }).catch(function (err) {
+                  throw err;
+                });
+              });
+            });
+          });
+        });
+
+        describe('getters', function () {
+          describe('getMaintainers', function () {
+            it('should get all maintainers, owner, admins, and limited a like', function (done) {
+              async.parallel([
+                function (callback) {
+                  models.User.create({
+                    username: 'johndoe',
+                    email_address: 'john@example.com',
+                    password: 'keyboardcat'
+                  }).complete(callback);
+                },
+                function (callback) {
+                  models.User.create({
+                    username: 'janedoe',
+                    email_address: 'jane@example.come',
+                    password: 'keyboardcat'
+                  }).complete(callback);
+                }
+              ], function (err, users) {
+                user.createALISDevice().complete(function (err, device) {
+                  if (err) { throw err; }
+                  async.parallel([
+                    function (callback) {
+                      device.addUser(users[0]).complete(callback);
+                    },
+                    function (callback) {
+                      device.addUser(users[1]).complete(callback);
+                    }
+                  ], function (err, users) {
+                    if (err) { throw err; }
+                    device.getUser().complete(function (err, maintainers) {
+                      expect(maintainers.length).to.be(3);
+                      done();
+                    });
+                  })
+                });
+              });
+            });
+          });
+          describe('isAdmin', function () {
+            it('should identify an owner as an admin', function (done) {
+              user.createALISDevice().complete(function (err, device) {
+                if (err) { throw err; }
+                device.isAdmin(user).then(function (result) {
+                  expect(result).to.be(true);
+                  done();
+                }).catch(function (err) {
+                  throw err;
+                });
+              });
+            });
+            xit('should identify an admin as an admin', function (done) {
+              User.createALISDevice()
+            });
+          });
+        });
+
+        xdescribe('modification', function () {
+          it('should allow an owner to give limited acces to a user', function () {
+            models.User.create({
+              username: 'johndoe',
+              email_address: 'valid@example.com',
+              password: 'keyboardcat'
+            }).complete(function (err, user2) {
+              if (err) { throw err; }
+              user.createALISDevice().complete(function (err, device) {
+                if (err) { throw err; }
+              })
+            });
+          });
+        });
+      });
+    });
+
     describe('authentication', function () {
       it('should not authenticate someone if there aren\'t any records in the database', function (done) {
         models
@@ -483,7 +606,7 @@ describe('integration tests', function () {
       });
     });
 
-    xdescribe('modification', function () {
+    describe('modification', function () {
       it('should not allow the modification of the UUID', function (done) {
         ALISDevice.create({})
           .complete(function (err, alisDevice) {
@@ -498,6 +621,22 @@ describe('integration tests', function () {
               done();
             })
           });
+      });
+
+      xdescribe('privilege', function () {
+        it('should be able to change privileges', function (done) {
+          ALISDevice.create({}).complete(function (err, alisDevice) {
+            if (err) {
+              throw err;
+            }
+
+            alisDevice.setOwner(user).then(function () {
+              done();
+            }).catch(function (e) {
+              throw e;
+            });
+          });
+        });
       });
     });
   });
