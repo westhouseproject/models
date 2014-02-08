@@ -472,17 +472,29 @@ describe('integration tests', function () {
           });
         });
 
-        xdescribe('modification', function () {
-          it('should allow an owner to give limited acces to a user', function () {
-            models.User.create({
-              username: 'johndoe',
-              email_address: 'valid@example.com',
-              password: 'keyboardcat'
-            }).complete(function (err, user2) {
-              if (err) { throw err; }
-              user.createALISDevice().complete(function (err, device) {
+        describe('modification', function () {
+          describe('grantAccessTo', function () {
+            it('should allow an owner to give limited acces to a user, who otherwise didn\'t have any access', function (done) {
+              models.User.create({
+                username: 'johndoe',
+                email_address: 'johndoe@example.com',
+                password: 'keyboardcat'
+              }).complete(function (err, user2) {
                 if (err) { throw err; }
-              })
+                user.createALISDevice().complete(function (err, device) {
+                  if (err) { throw err; }
+                  device.grantAccessTo(user, user2).then(function(user) {
+                    device.hasAccess(user).then(function (result) {
+                      expect(result).to.be(true);
+                      done();
+                    }).catch(function (err) {
+                      throw err;
+                    });
+                  }).catch(function (err) {
+                    throw err;
+                  });
+                });
+              });
             });
           });
         });

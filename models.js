@@ -65,14 +65,48 @@ module.exports.define = function (sequelize) {
         return def.promise;
       },
 
+      hasAccess: function (user) {
+        var def = bluebird.defer();
+        UserALISDevice.find({
+          where: [
+            'alis_device_id = ? AND user_id = ?',
+            this.id,
+            user.id
+          ]
+        }).complete(function (err, user) {
+          if (err) { return def.reject(err); }
+          def.resolve(!!user);
+        });
+        return def.promise;
+      },
+
       /*
        * Will give limited access to the specified user.
        */
 
-      giveAccessTo: function (admin, user) {
+      grantAccessTo: function (admin, user) {
+        var def = bluebird.defer();
+        var self = this;
         this.isAdmin(admin).then(function (result) {
-
-        })
+          if (!result) {
+            def.reject(new Error('The user is not an admin.'));
+          }
+          // console.log(user.id);
+          // console.log(self.id);
+          // console.log(admin.id);
+          UserALISDevice.create({
+            user_id: user.id,
+            alis_device_id: self.id,
+            adminUserID: admin.id
+          }).complete(function (err, join) {
+            //console.log('OK...');
+            if (err) { def.reject(err); }
+            def.resolve(user);
+          });
+        }).catch(function (err) {
+          def.reject(err);
+        });
+        return def.promise;
       }
     },
     hooks: {
@@ -85,7 +119,7 @@ module.exports.define = function (sequelize) {
         }
 
         process.nextTick(function () {
-          callback();
+          callback(null);
         });
       }
     }
@@ -154,8 +188,7 @@ module.exports.define = function (sequelize) {
         this
           .find({
             where: [ 'username = ? OR email_address = ?', username, username ]
-          })
-          .complete(function (err, user) {
+          }).complete(function (err, user) {
             if (err) { return def.reject(err); }
             if (!user) {
               return def.reject(new Error('User not found'));
@@ -237,14 +270,54 @@ module.exports.define = function (sequelize) {
     }
   }, {
     hooks: {
-      /*
       beforeValidate: function (join, callback) {
-        ALISDevice.find(join.alis_device_id).complete(function (err, device) {
-          if (err) { return callback(err); }
-          device.getUsers().then(function (users))
-        });
+
+        async.waterfall([
+          // First, check to see whether or not the device already have a set of
+          // users.
+          function (callback) {
+            // Find the device associated with this join.
+            ALISDevice.find(join.alis_device_id).complete(function (err, device) {
+              if (err) { return callback(err); }
+
+              // TODO: check to see why a device will be null.
+              if (!device) { return callback(null); }
+
+              // Check to see whether or not the device already has users
+              // associated with it.
+              device.getUser().complete(function (err, users) {
+                // No users? Then this join record is new.
+                if (!users.length) { return callback(null); }
+
+                // If there are users, then check to see if the current `join`
+                // instance has a `adminUserID` property set, and if it does,
+                // get the user associated to the ID, and check to see if that
+                // user is an admin.
+
+                // In this case, we'll grab that one admin user from the above
+                // `users` variable. No need to send an extra roundtrip to the
+                // database.
+                var user = users.filter(function (user) {
+                  return user.id === join.dataValues.adminUserID;
+                })[0];
+
+                if (!user) {
+                  return callback(new Error('Only admins can give access.'));
+                }
+
+                device.isAdmin(user).then(function (result) {
+                  if (!result) {
+                    return callback(new Error('Only admins can give access.'));
+                  }
+
+                  callback(null);
+                }).catch(callback);
+              });
+            });
+          }
+        ], callback);
+
       },
-      */
       beforeCreate: function (join, callback) {
         this.findAll({
           where: ['alis_device_id', join.alis_device_id]
@@ -269,8 +342,6 @@ module.exports.define = function (sequelize) {
     through: UserALISDevice,
     foreignKey: 'alis_device_id'
   });
-
-  // TODO: override the implementation of ALISDevice#addUser from anyone.
 
   ALISDevice.hasMany(User, {
     as: 'User',
