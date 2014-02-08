@@ -91,15 +91,11 @@ module.exports.define = function (sequelize) {
           if (!result) {
             def.reject(new Error('The user is not an admin.'));
           }
-          // console.log(user.id);
-          // console.log(self.id);
-          // console.log(admin.id);
           UserALISDevice.create({
             user_id: user.id,
             alis_device_id: self.id,
             adminUserID: admin.id
           }).complete(function (err, join) {
-            //console.log('OK...');
             if (err) { def.reject(err); }
             def.resolve(user);
           });
