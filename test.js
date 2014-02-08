@@ -412,6 +412,17 @@ describe('integration tests', function () {
                 });
               });
             });
+
+            it('should allow the creation of an ALIS device, given a common name', function (done) {
+              var commonName = 'My Awesome House';
+              user.createALISDevice({
+                common_name: commonName
+              }).complete(function (err, device) {
+                if (err) { throw err; }
+                expect(device.common_name).to.be(commonName);
+                done();
+              });
+            });
           });
         });
 

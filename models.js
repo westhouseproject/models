@@ -16,6 +16,7 @@ module.exports.define = function (sequelize) {
    */
 
   var ALISDevice = retval.ALISDevice = sequelize.define('alis_device', {
+    common_name: Sequelize.STRING,
     uuid_token: {
       type: Sequelize.STRING,
       allowNull: false,
