@@ -11,7 +11,8 @@ module.exports.define = function (sequelize) {
   // This is where we will be storing our model classes.
   var retval = {};
 
-  // TODO: rename ALIS device to something less proprietary.
+  // TODO: set a custom primary key for both the users and alis_device tables.
+
   /*
    * Represents an ALIS device.
    */
@@ -320,8 +321,46 @@ module.exports.define = function (sequelize) {
       beforeValidate: function (join, callback) {
 
         async.waterfall([
-          // First, check to see whether or not the device already have a set of
-          // users.
+          // First, check to see if the user is even verified, before even
+          // creating this join.
+          function (callback) {
+            User.find(join.user_id).complete(function (err, user) {
+              if (err) { return callback(err); }
+              if (user.isVerified()) { return callback(null); }
+
+              // If we're here, then this means that the user is not verified.
+
+              var retError = new Error('The user is not verified.');
+              retError.notVerified = true;
+
+              // Try and determine if the ALIS device already has a set of users
+              // maintaining it. If not, then delete the device.
+              async.waterfall([
+                function (callback) {
+                  ALISDevice.find(join.alis_device_id).complete(function (err, device) {
+                    if (err) { return callback(err); }
+                    device.getUser().complete(function (err, users) {
+                      if (err) { return callback(err); }
+                      if (users.length) {
+                        return callback(null);
+                      }
+                      device.destroy().complete(function (err) {
+                        if (err) { return callback(err); }
+                        callback(null);
+                      });
+                    });
+                  });
+                }
+              ], function (err) {
+                if (err) { return callback(err); }
+                return callback(retError);
+              });
+            });
+          },
+
+          // First, check to see whether or not the device already has a set of
+          // users. If it does, then check to see if an admin initiated the
+          // creation of the join.
           function (callback) {
             // Find the device associated with this join.
             ALISDevice.find(join.alis_device_id).complete(function (err, device) {
@@ -387,13 +426,13 @@ module.exports.define = function (sequelize) {
   User.hasMany(ALISDevice, {
     as: 'ALISDevice',
     through: UserALISDevice,
-    foreignKey: 'alis_device_id'
+    foreignKey: 'user_id'
   });
 
   ALISDevice.hasMany(User, {
     as: 'User',
     through: UserALISDevice,
-    foreignKey: 'user_id'
+    foreignKey: 'alis_device_id'
   });
 
   return retval;

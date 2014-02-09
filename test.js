@@ -251,7 +251,7 @@ describe('integration tests', function () {
               if (err) { throw err; }
               expect(validator.isUUID(user.verification_code), 4)
                 .to.be(true);
-              expect(user.is_verified).to.be(false);
+              expect(user.isVerified()).to.be(false);
               done();
             });
         });
@@ -365,7 +365,7 @@ describe('integration tests', function () {
           })
       });
 
-      describe.only('verification', function () {
+      describe('verification', function () {
         it('should not verify a user given a non-matching verification code', function (done) {
           models.User.create({
             username: 'validusername',
@@ -473,7 +473,7 @@ describe('integration tests', function () {
         });
         describe('creation', function () {
           describe('createALISDevice', function () {
-            it('should not create a new ALIS device, if the user is not logged in', function (done) {
+            it('should not create a new ALIS device, if the user is not verified', function (done) {
               models.User.create({
                 username: 'johndoe',
                 email_address: 'valid@email.com',
@@ -482,6 +482,10 @@ describe('integration tests', function () {
                 if (err) {
                   throw err;
                 }
+                user.createALISDevice().complete(function (err, device) {
+                  expect(err.notVerified).to.be(true);
+                  done();
+                });
               });
             });
             it('should create a new ALIS device, and set the user as it\'s owner', function (done) {
@@ -519,24 +523,44 @@ describe('integration tests', function () {
                     username: 'johndoe',
                     email_address: 'john@example.com',
                     password: 'keyboardcat'
-                  }).complete(callback);
+                  }).complete(function (err, user) {
+                    if (err) { return callback(err); }
+                    user.verify(
+                      user.verification_code,
+                      user.email_address
+                    ).then(function (user) {
+                      callback(null, user);
+                    }).catch(callback);
+                  });
                 },
                 function (callback) {
                   models.User.create({
                     username: 'janedoe',
                     email_address: 'jane@example.come',
                     password: 'keyboardcat'
-                  }).complete(callback);
+                  }).complete(function (err, user) {
+                    if (err) { return callback(err); }
+                    user.verify(
+                      user.verification_code,
+                      user.email_address
+                    ).then(function (user) {
+                      callback(null, user);
+                    }).catch(callback);
+                  });
                 }
               ], function (err, users) {
                 user.createALISDevice().complete(function (err, device) {
                   if (err) { throw err; }
                   async.parallel([
                     function (callback) {
-                      device.addUser(users[0]).complete(callback);
+                      device.grantAccessTo(user, users[0]).then(function (user) {
+                        callback(null)
+                      }).catch(callback);
                     },
                     function (callback) {
-                      device.addUser(users[1]).complete(callback);
+                      device.grantAccessTo(user, users[1]).then(function (user) {
+                        callback(null)
+                      }).catch(callback);
                     }
                   ], function (err, users) {
                     if (err) { throw err; }
@@ -576,17 +600,43 @@ describe('integration tests', function () {
                 password: 'keyboardcat'
               }).complete(function (err, user2) {
                 if (err) { throw err; }
-                user.createALISDevice().complete(function (err, device) {
-                  if (err) { throw err; }
-                  device.grantAccessTo(user, user2).then(function(user) {
-                    device.hasAccess(user).then(function (result) {
-                      expect(result).to.be(true);
-                      done();
+                user2.verify(
+                  user2.verification_code,
+                  user2.email_address
+                ).then(function (user2) {
+                  user.createALISDevice().complete(function (err, device) {
+                    if (err) { throw err; }
+                    device.grantAccessTo(user, user2).then(function(user) {
+                      device.hasAccess(user).then(function (result) {
+                        expect(result).to.be(true);
+                        done();
+                      }).catch(function (err) {
+                        throw err;
+                      });
                     }).catch(function (err) {
                       throw err;
                     });
+                  });
+
+                }).catch(function (err) {
+                  throw err;
+                })
+              });
+            });
+            it('should not give access to a user who hasn\'t been verified yet.', function (done) {
+              models.User.create({
+                username: 'johndoe',
+                email_address: 'johndoe@example.com',
+                password: 'keyboardcat'
+              }).complete(function (err, user2) {
+                if (err) { throw err; }
+                user.createALISDevice().complete(function (err, device) {
+                  if (err) { throw err; }
+                  device.grantAccessTo(user, user2).then(function (user) {
+                    throw new Error('Should not have granted any access to the user');
                   }).catch(function (err) {
-                    throw err;
+                    expect(err.notVerified).to.be(true);
+                    done();
                   });
                 });
               });
@@ -672,7 +722,14 @@ describe('integration tests', function () {
             })
             .success(function (u) {
               user = u;
-              done();
+              user.verify(
+                user.verification_code,
+                user.email_address
+              ).then(function (user) {
+                done();
+              }).catch(function (err) {
+                throw err;
+              });
             })
             .error(function (err) {
               throw err;
