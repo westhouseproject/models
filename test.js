@@ -363,7 +363,86 @@ describe('integration tests', function () {
                   })
               })
           })
-      })
+      });
+
+      describe.only('verification', function () {
+        it('should not verify a user given a non-matching verification code', function (done) {
+          models.User.create({
+            username: 'validusername',
+            email_address: 'valid@example.com',
+            password: 'keyboardcat'
+          }).complete(function (err, user) {
+            if (err) { throw err; }
+            user.verify(
+              'lkasdjfkljas',
+              user.email_address
+            ).then(function (user) {
+              expect(user.isVerified()).to.be(false);
+              done();
+            }).catch(function (err) {
+              expect(err.notVerified).to.be(true);
+              done();
+            });
+          });
+        });
+
+        it('should not verify a user given a non-matching email address', function (done) {
+          models.User.create({
+            username: 'validusername',
+            email_address: 'valid@example.com',
+            password: 'keyboardcat'
+          }).complete(function (err, user) {
+            if (err) { throw err; }
+            user.verify(
+              user.verification_code,
+              'notsame@example.com'
+            ).then(function(user) {
+              expect(user.isVerified()).to.be(false);
+              done();
+            }).catch(function (err) {
+              expect(err.notVerified).to.be(true);
+              done();
+            });
+          });
+        });
+
+        it('should not verify a user given both a non-matching verification code *and* email address', function (done) {
+          models.User.create({
+            username: 'validusername',
+            email_address: 'valid@example.com',
+            password: 'keyboardcat'
+          }).complete(function (err, user) {
+            user.verify(
+              'notsame',
+              'notsame@example.com'
+            ).then(function (user) {
+              expect(user.isVerified()).to.be(false);
+              done();
+            }).catch(function (err) {
+              expect(err.notVerified).to.be(true);
+              done();
+            });
+          });
+        });
+
+        it('should verify a user given a matching verification code and email address', function (done) {
+          models.User.create({
+            username: 'validusername',
+            email_address: 'valid@example.com',
+            password: 'keyboardcat'
+          }).complete(function (err, user) {
+            user.verify(
+              user.verification_code,
+              user.email_address
+            ).then(function (user) {
+              expect(user.isVerified()).to.be(true);
+              done();
+            }).catch(function (err) {
+              throw err;
+            })
+          });
+        });
+      });
     });
 
     describe('relationship', function () {
@@ -381,25 +460,30 @@ describe('integration tests', function () {
                 throw err;
               }
               user = u;
-              done();
+              user.verify(
+                user.verification_code,
+                user.email_address
+              ).then(function (user) {
+                done();
+              }).catch(function (err) {
+                throw err;
+              });
             });
           })
         });
         describe('creation', function () {
-          it('should do nothing', function (done) {
-            models.UserALISDevice.create({
-              alis_device_id: 1,
-              user_id: 1,
-              something_random: 'asdlkfjalskdjfsaldjfldjkf',
-              another_thing_random: 'alksdjflkasdjflaskjf'
-            }).complete(function (err, user) {
-              if (err) {
-                throw err;
-              }
-              done();
-            });
-          });
           describe('createALISDevice', function () {
+            it('should not create a new ALIS device, if the user is not logged in', function (done) {
+              models.User.create({
+                username: 'johndoe',
+                email_address: 'valid@email.com',
+                password: 'keyboardcat'
+              }).complete(function (err, user) {
+                if (err) {
+                  throw err;
+                }
+              });
+            });
             it('should create a new ALIS device, and set the user as it\'s owner', function (done) {
               user.createALISDevice().complete(function (err, device) {
                 if (err) { throw err; }

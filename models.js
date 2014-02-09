@@ -11,6 +11,7 @@ module.exports.define = function (sequelize) {
   // This is where we will be storing our model classes.
   var retval = {};
 
+  // TODO: rename ALIS device to something less proprietary.
   /*
    * Represents an ALIS device.
    */
@@ -24,6 +25,9 @@ module.exports.define = function (sequelize) {
         isUUID: 4
       }
     },
+
+    // TODO: find some ways to hide this information from users who are not
+    //   owners of an instance of this model.
     client_secret: Sequelize.STRING
   }, {
     instanceMethods: {
@@ -161,12 +165,7 @@ module.exports.define = function (sequelize) {
       type: Sequelize.STRING,
       allowNull: false
     },
-    verification_code: Sequelize.STRING,
-    is_verified: {
-      type: Sequelize.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
-    }
+    verification_code: Sequelize.STRING
   }, {
     instanceMethods: {
       normalizeUsername: function () {
@@ -176,6 +175,40 @@ module.exports.define = function (sequelize) {
           this.chosen_username = this.username;
           this.username = this.chosen_username.toLowerCase();
         }
+      },
+
+      /*
+       * Verifies a user. Without verification, the user can't register a new
+       * ALIS device.
+       */
+
+      verify: function (verification_code, email_address) {
+        var def = bluebird.defer();
+        var self = this;
+
+        process.nextTick(function () {
+          if (
+            verification_code !== self.verification_code ||
+            email_address !== self.email_address
+          ) {
+            var err = new Error('Error verification code or email don\'t match.');
+            err.notVerified = true;
+            def.reject(err);
+          }
+
+          self.updateAttributes({
+            verification_code: null
+          }).complete(function (err, user) {
+            if (err) { return def.reject(err); }
+            def.resolve(user);
+          });
+        });
+
+        return def.promise;
+      },
+
+      isVerified: function () {
+        return this.verification_code == null;
       }
     },
     classMethods: {
@@ -251,6 +284,23 @@ module.exports.define = function (sequelize) {
         });
       }
     }
+  });
+
+  /*
+   * The devices that consume energy.
+   */
+
+  var EnergyConsumer = retval.EnergyConsumer = sequelize.define('energy_consumer', {
+    name: Sequelize.STRING,
+
+    /*
+     * This is the unique identifier represented by the ALIS device.
+     */
+    remote_consumer_id: Sequelize.STRING
+  });
+
+  EnergyConsumer.hasOne(ALISDevice, {
+    as: 'ALISDevice'
   });
 
   /*
