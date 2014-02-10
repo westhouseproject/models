@@ -740,6 +740,7 @@ describe('integration tests', function () {
           throw err;
         });
     });
+
     describe('creation', function () {
       it('should create a new ALIS device, with a UUID token and "client secret"', function (done) {
         ALISDevice
@@ -800,6 +801,47 @@ describe('integration tests', function () {
               throw e;
             });
           });
+        });
+      });
+    });
+
+    describe('findOrCreateConsumer', function () {
+      it('should create a consumer, if one wasn\'t found', function (done) {
+        user.createALISDevice().complete(function (err, alisDevice) {
+          if (err) { throw err; }
+          var consumerId = 'hello,world';
+          alisDevice.findOrCreateConsumer(consumerId).then(function (consumer) {
+            alisDevice.getEnergyConsumers().complete(function (err, consumers) {
+              if (err) { throw err; }
+              expect(consumers[0].remote_consumer_id).to.be(consumerId);
+              done();
+            });
+          }).catch(function (err) {
+            throw err;
+          })
+        });
+      });
+
+      it('should find a consumer, if one was found', function (done) {
+        user.createALISDevice().complete(function (err, alisDevice) {
+          if (err) { throw err; }
+          var consumerId = 'hello,world';
+          alisDevice.findOrCreateConsumer(consumerId).then(function (consumer) {
+            alisDevice.getEnergyConsumers().complete(function (err, consumers) {
+              if (err) { throw err; }
+              alisDevice
+                .findOrCreateConsumer(consumers[0].remote_consumer_id)
+                .then(function (consumer) {
+                  expect(consumers[0].remote_consumer_id).to.be(consumerId);
+                  done();
+                })
+                .catch(function (err) {
+                  throw err;
+                })
+            });
+          }).catch(function (err) {
+            throw err;
+          })
         });
       });
     });

@@ -14,6 +14,21 @@ module.exports.define = function (sequelize) {
   // TODO: set a custom primary key for both the users and alis_device tables.
 
   /*
+   * The devices that consume energy.
+   */
+
+  var EnergyConsumer = retval.EnergyConsumer = sequelize.define('energy_consumer', {
+    name: Sequelize.STRING,
+    /*
+     * This is the unique identifier represented by the ALIS device.
+     */
+    remote_consumer_id: {
+      type: Sequelize.STRING,
+      allowNull: false
+    }
+  });
+
+  /*
    * Represents an ALIS device.
    */
 
@@ -109,6 +124,27 @@ module.exports.define = function (sequelize) {
           def.reject(err);
         });
         return def.promise;
+      },
+
+      findOrCreateConsumer: function (consumerID) {
+        var def = bluebird.defer();
+        var self = this;
+        this.getEnergyConsumers({
+          where: [ 'remote_consumer_id = ?', consumerID ]
+        }).complete(function (err, consumer) {
+          if (err) { return def.reject(err); }
+          if (consumer[0]) { return def.resolve(consumer); }
+          EnergyConsumer.create({
+            remote_consumer_id: consumerID
+          }).complete(function (err, consumer) {
+            if (err) { def.reject(err); }
+            self.addEnergyConsumer(consumer).complete(function (err, consumer) {
+              if (err) { def.reject(err); }
+              def.resolve(consumer);
+            });
+          });
+        });
+        return def.promise;
       }
     },
     hooks: {
@@ -126,6 +162,8 @@ module.exports.define = function (sequelize) {
       }
     }
   });
+
+  ALISDevice.hasMany(EnergyConsumer, { as: 'EnergyConsumers' });
 
   /*
    * Represents a user.
@@ -285,23 +323,6 @@ module.exports.define = function (sequelize) {
         });
       }
     }
-  });
-
-  /*
-   * The devices that consume energy.
-   */
-
-  var EnergyConsumer = retval.EnergyConsumer = sequelize.define('energy_consumer', {
-    name: Sequelize.STRING,
-
-    /*
-     * This is the unique identifier represented by the ALIS device.
-     */
-    remote_consumer_id: Sequelize.STRING
-  });
-
-  EnergyConsumer.hasOne(ALISDevice, {
-    as: 'ALISDevice'
   });
 
   /*
