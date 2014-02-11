@@ -186,9 +186,11 @@ module.exports.define = function (sequelize) {
 
         options = _.assign({}, options);
 
+        if (/^(false|no|f|0)$/.test(options.summed)) { options.summed = false; }
+
         // TODO: unit test this.
         try {
-          var con = JSON.parse(options.consumers);
+          options.consumers = JSON.parse(options.consumers);
           options.consumers = options.consumers.map(function (consumer) {
             return consumer.toString();
           });
