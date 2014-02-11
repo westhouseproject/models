@@ -155,7 +155,7 @@ module.exports.define = function (sequelize) {
         return def.promise;
       },
 
-      findOrCreateConsumer: function (consumerID) {
+      findOrCreateEnergyConsumer: function (consumerID) {
         var def = bluebird.defer();
         var self = this;
         this.getEnergyConsumers({
@@ -252,6 +252,7 @@ module.exports.define = function (sequelize) {
         var def = bluebird.defer();
         var self = this;
 
+
         process.nextTick(function () {
           if (
             verification_code !== self.verification_code ||
@@ -259,7 +260,7 @@ module.exports.define = function (sequelize) {
           ) {
             var err = new Error('Error verification code or email don\'t match.');
             err.notVerified = true;
-            def.reject(err);
+            return def.reject(err);
           }
 
           self.updateAttributes({
@@ -470,79 +471,18 @@ module.exports.define = function (sequelize) {
   });
 
   /*
-   * A set of properties common on both the consumption readings, *and* on
-   * granularity readings.
-   */
-
-  var readingsCommon = {
-    time: {
-      type: Sequelize.DATE,
-      validate: {
-        notNull: true
-      }
-    },
-
-    house_id: {
-      type: Sequelize.STRING,
-      validate: {
-        notNull: true
-      }
-    }
-  };
-
-  /*
    * A common set of schema attributes that each of the granularities will share.
    */
 
   // TODO: extend from readingsCommon
   var granularityCommon = {
-    time: {
-      type: Sequelize.DATE,
-      notNull: true
-    },
-    kwh_sum: {
-      type: Sequelize.FLOAT,
-      defaultValue: 0
-    },
-    kwh_average: {
-      type: Sequelize.FLOAT,
-      defaultValue: 0
-    },
-    kwh_median: Sequelize.FLOAT,
-    kwh_min: Sequelize.FLOAT,
-    kwh_max: Sequelize.FLOAT,
-    kwh_first_quartile: Sequelize.FLOAT,
-    kwh_third_quartile: Sequelize.FLOAT,
-    kwh_standard_deviation: Sequelize.FLOAT
+    
   };
 
   /*
    * A common set of schema attributes that both the `energy_consumptions` *and*
    * `energy_consumptions_totals` will share.
    */
-
-  // TODO: extend from readingsCommon
-  var consumptionCommon = {
-    time: {
-      type: Sequelize.DATE,
-      validate: {
-        notNull: true
-      }
-    },
-
-    kw: {
-      type: Sequelize.FLOAT,
-      defaultValue: 0
-    },
-    kwh: {
-      type: Sequelize.FLOAT,
-      defaultValue: 0
-    },
-    kwh_difference: {
-      type: Sequelize.FLOAT,
-      defaultValue: 0
-    }
-  };
 
   /*
    * Returns a function that will be used for merging multiple data points in a
@@ -551,7 +491,7 @@ module.exports.define = function (sequelize) {
    */
 
   function createCollector(interval, nextGranularity) {
-    return function (granularModel, time, device_id) {
+    return function (granularModel, time, consumer_id) {
       var self = this;
 
       var rounded = roundTime(time, interval);
@@ -568,15 +508,15 @@ module.exports.define = function (sequelize) {
       };
 
       var whereClause =
-        typeof device_id != 'number' ? [
+        typeof consumer_id != 'number' ? [
           'time > ? && time <= ?',
           rounded,
           time
         ] : [
-          'time > ? && time <= ? && device_id = ?',
+          'time > ? && time <= ? && consumer_id = ?',
           rounded,
           time,
-          device_id
+          consumer_id
         ]
 
       granularModel.model.findAll({
@@ -595,25 +535,21 @@ module.exports.define = function (sequelize) {
           });
           var report = numbers.statistic.report(kwhs);
           statistics.kwh_average = report.mean;
-          statistics.kwh_median = report.median;
-          statistics.kwh_first_quartile = report.firstQuartile;
-          statistics.kwh_third_quartile = report.thirdQuartile;
           statistics.kwh_min = kwhs.slice().sort()[0];
           statistics.kwh_max = kwhs.slice().sort()[kwhs.length - 1];
-          statistics.kwh_standard_deviation = report.standardDev;
         }
 
-        var query = typeof device_id != 'number' ? {
+        var query = typeof consumer_id != 'number' ? {
           order: 'time DESC'
         } : {
           order: 'time DESC',
-          where: [ 'device_id = ?', device_id ]
+          where: [ 'consumer_id = ?', consumer_id ]
         }
 
         self.find(query).success(function (unitData) {
           function collectNext(prevData) {
             var parameters;
-            if (typeof device_id != 'number') {
+            if (typeof consumer_id != 'number') {
               parameters = [
                 {
                   model: self,
@@ -628,7 +564,7 @@ module.exports.define = function (sequelize) {
                   readingsPropertyName: 'kwh_sum'
                 },
                 prevData.values.time,
-                device_id
+                consumer_id
               ];
             }
 
@@ -652,11 +588,11 @@ module.exports.define = function (sequelize) {
           ) {
             var tableSpecificProperties =
 
-              typeof device_id != 'number' ? {
+              typeof consumer_id != 'number' ? {
                 time: roundTime(time, interval)
               } : {
                 time: roundTime(time, interval),
-                device_id: device_id
+                consumer_id: consumer_id
               };
 
             self.create(
@@ -709,14 +645,28 @@ module.exports.define = function (sequelize) {
    */
 
   function createModel(tableName, interval, nextGranularity) {
-    return sequelize.define(tableName, _.assign({
-      device_id: {
+    return sequelize.define(tableName, {
+      consumer_id: {
         type: Sequelize.INTEGER.UNSIGNED,
         validate: {
           notNull: true
         }
-      }
-    }, granularityCommon), {
+      },
+      time: {
+        type: Sequelize.DATE,
+        notNull: true
+      },
+      kwh_sum: {
+        type: Sequelize.FLOAT,
+        defaultValue: 0
+      },
+      kwh_average: {
+        type: Sequelize.FLOAT,
+        defaultValue: 0
+      },
+      kwh_min: Sequelize.FLOAT,
+      kwh_max: Sequelize.FLOAT,
+    }, {
       freezeTableName: true,
       timestamps: false,
       classMethods: {
@@ -725,26 +675,6 @@ module.exports.define = function (sequelize) {
             createCollector(interval)
       }
     });
-  }
-
-  /*
-   * Generates a model that will be used to get the energy consumption of all the
-   * devices as a whole.
-   */
-
-  function createTotalsModel(tableName, interval, nextGranularity) {
-    return sequelize.define(
-      tableName,
-      _.assign({}, granularityCommon), {
-        freezeTableName: true,
-        timestamps: false,
-        classMethods: {
-          collectRecent: nextGranularity ?
-            createCollector(interval, nextGranularity) :
-              createCollector(interval)
-        }
-      }
-    );
   }
 
   /*
@@ -789,21 +719,10 @@ module.exports.define = function (sequelize) {
           seriesCollection[nextGranularity].model
         );
 
-        seriesCollection[key].totalsModel = createTotalsModel(
-          'energy_consumptions_totals_' + key,
-          seriesCollectionMeta[key].interval,
-          seriesCollection[nextGranularity].totalsModel
-        );
-
       } else {
 
         seriesCollection[key].model = createModel(
           'energy_consumptions_' + key,
-          seriesCollectionMeta[key].interval
-        );
-
-        seriesCollection[key].totalsModel = createTotalsModel(
-          'energy_consumptions_totals_' + key,
           seriesCollectionMeta[key].interval
         );
 
@@ -823,74 +742,40 @@ module.exports.define = function (sequelize) {
   })();
 
   /*
-   * Holds information about the data usage of all the devices combined.
-   */
-
-  var EnergyConsumptionsTotals = retval.EnergyConsumptionsTotals =
-    sequelize.define(
-      'energy_consumptions_totals',
-        _.assign({}, consumptionCommon), {
-        freezeTableName: true,
-        timestamps: false,
-        hooks: {
-          beforeValidate: function (consumption, callback) {
-            var self = this;
-
-            this.find({
-              order: 'time DESC'
-            })
-            .success(function (prev) {
-              if (prev) {
-                if (prev.values.time > consumption.values.time) {
-                  var err = new Error(
-                    'Current time: ' + consumption.values.time + '\n' +
-                    'Previous time: ' + prev.values.time + '\n\n' +
-                    'Current time must be greater than previous time'
-                  );
-                  return callback(err);
-                }
-                consumption.values.kwh_difference =
-                  consumption.values.kwh - prev.values.kwh;
-              } else {
-                consumption.values.kwh_difference = consumption.values.kwh;
-              }
-
-              callback(null, consumption);
-            })
-            .error(callback);
-          },
-          afterCreate: function (consumption, callback) {
-            seriesCollection['1m'].totalsModel.collectRecent(
-              {
-                model: this,
-                readingsPropertyName: 'kwh_difference'
-              },
-              consumption.values.time
-            )
-            .success(function () {
-              callback(null, consumption);
-            })
-            .error(callback);
-          }
-        }
-      }
-    )
-
-  /*
    * Holds information about energy usage by every single devices.
    */
 
   var EnergyConsumptions = retval.EnergyConsumptions =
-    sequelize.define('energy_consumptions', _.assign({
+    sequelize.define('energy_consumptions', {
       // TODO: This is being defined from somewhere else as well. Have it be only
       //   defined from one place.
-      device_id: {
-        type: Sequelize.STRING,
+      consumer_id: {
+        type: Sequelize.INTEGER(11),
         validate: {
           notNull: true
         }
       },
-    }, consumptionCommon), {
+
+      time: {
+        type: Sequelize.DATE,
+        validate: {
+          notNull: true
+        }
+      },
+
+      kw: {
+        type: Sequelize.FLOAT,
+        defaultValue: 0
+      },
+      kwh: {
+        type: Sequelize.FLOAT,
+        defaultValue: 0
+      },
+      kwh_difference: {
+        type: Sequelize.FLOAT,
+        defaultValue: 0
+      }
+    }, {
       freezeTableName: true,
       timestamps: false,
       hooks: {
@@ -899,7 +784,7 @@ module.exports.define = function (sequelize) {
 
           // Look for the most recent entry.
           this.find({
-            where: [ 'device_id = ?', consumption.values.device_id ],
+            where: [ 'consumer_id = ?', consumption.values.consumer_id ],
             order: 'time DESC' })
           .success(function (prev) {
             if (prev) {
@@ -929,7 +814,7 @@ module.exports.define = function (sequelize) {
               readingsPropertyName: 'kwh_difference'
             }, 
             consumption.values.time,
-            consumption.values.device_id
+            consumption.values.consumer_id
           )
           .success(function () {
             callback(null, consumption);
@@ -945,13 +830,15 @@ module.exports.define = function (sequelize) {
    *
    *     {
    *       "time": ...,
+   *       "uuid_token": ...,
+   *       "client_secret": ...,
    *       "energy_consumptions": [
    *         {
    *           remote_consumer_id: ...
    *           kw: ...
    *           kwh: ...
    *         }
-   *       ...
+   *         ...
    *       ]
    *     }
    */
@@ -961,67 +848,50 @@ module.exports.define = function (sequelize) {
   EnergyConsumptions.bulkCreate = function (data) {
     var self = this;
     var def = bluebird.defer();
-    async.each(data.devices, function (con, callback) {
-      con = _.assign({
-        time: data.time
-      }, con);
-      EnergyConsumptions.create(con).success(function (con) {
-        callback(null, con);
-      }).error(function (err) {
-        if (err instanceof Error) {
-          return callback(err);
-        }
-        callback(new ValidationErrors(err));
-      });
-    }, function (err, consumptions) {
-      if (err) {
-        return def.reject(err);
+
+    ALISDevice.find({
+      where: [
+        'uuid_token = ? AND client_secret = ?',
+        data.uuid_token,
+        data.client_secret
+      ]
+    }).complete(function (err, device) {
+      if (err) { return def.reject(err); }
+      if (!device) {
+        return def.reject(new Error('An ALIS device with the given UUID token and client secret not found'));
       }
-
-      var totals = _.assign(
-        data.devices.map(function (data) {
-          return {
-            kw: data.kw,
-            kwh: data.kwh
-          };
-        })
-        .reduce(function (prev, curr) {
-          return {
-            kw: prev.kw + curr.kw,
-            kwh: prev.kwh + curr.kwh
-          };
-        }),
-        {
-          time: data.time
-        }
-      );
-
-      EnergyConsumptionsTotals
-      .create(totals)
-      .success(function (consumptionTotal) {
-        def.resolve({
-          consumptions: consumptions,
-          consumptionTotal: consumptionTotal
-        });
-      })
-      .error(function (err) {
-        def.reject(err);
+      async.map(data.energy_consumptions, function (consumption, callback) {
+        device.findOrCreateEnergyConsumer(consumption.id)
+          .then(function (consumer) {
+            EnergyConsumptions.create({
+              consumer_id: consumer.id,
+              time: data.time,
+              kw: consumption.kw,
+              kwh: consumption.kwh
+            }).success(function (con) {
+              callback(null, con);
+            }).error(function (err) {
+              if (err instanceof Error) {
+                return callback(err);
+              }
+              callback(new ValidationErrors(err));
+            });
+          }).catch(function (err) {
+            throw err;
+          });
+      }, function (err, consumptions) {
+        if (err) { return def.reject(err); }
+        def.resolve(consumptions);
       });
     });
-    var promise = def.promise;
-    promise.success = function (fn) {
-      return promise.then(fn);
-    };
-    promise.error = function (fn) {
-      return promise.then(function () {}, fn);
-    };
-    return promise;
+    return def.promise;
   };
 
   // Associations.
 
   ALISDevice.hasMany(EnergyConsumer, {
-    as: 'EnergyConsumers'
+    as: 'EnergyConsumers',
+    foreignKey: 'alis_device_id'
   });
 
   User.hasMany(ALISDevice, {
