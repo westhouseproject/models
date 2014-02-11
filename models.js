@@ -59,10 +59,14 @@ module.exports.define = function (sequelize) {
    * Represents an ALIS device.
    */
 
+  // TODO: find a way to gracefully regenerate a new UUID if one already
+  //   existed.
+
   var ALISDevice = retval.ALISDevice = sequelize.define('alis_device', {
     common_name: Sequelize.STRING,
     uuid_token: {
       type: Sequelize.STRING,
+      unique: true,
       allowNull: false,
       validation: {
         isUUID: 4
