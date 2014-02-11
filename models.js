@@ -8,37 +8,36 @@ var bluebird = require('bluebird');
 var numbers = require('numbers');
 var _ = require('lodash');
 
-// TODO: rename all instances of "device_id" to "remote_consumer_id".
-
 /*
  * Represents an error that occurs after determining that a set of inputs are
  * invalid for inserting into the database.
  */
 
-module.exports.ValidationErrors = ValidationErrors;
-function ValidationErrors(err) {
-  var finalMessage = [];
-  Object.keys(err).forEach(function (key) {
-    finalMessage.push(key + ': ' + err[key]);
-  });
-  this.message = finalMessage.join('\n');
-}
-ValidationErrors.prototype = Error.prototype;
-
-/*
- * Floor to the nearest interval of a given date object. E.g. 12:32 will be
- * floored to 12:30 if the interval was 1000 * 60 * 5 = 5 minutes.
- */
-
-var roundTime = module.exports.roundTime = function roundTime(date, coeff) {
-  var retval = new Date(Math.floor(date.getTime() / coeff) * coeff);
-  return retval;
-};
 
 module.exports.define = function (sequelize) {
 
   // This is where we will be storing our model classes.
   var retval = {};
+
+  retval.ValidationErrors = ValidationErrors;
+  function ValidationErrors(err) {
+    var finalMessage = [];
+    Object.keys(err).forEach(function (key) {
+      finalMessage.push(key + ': ' + err[key]);
+    });
+    this.message = finalMessage.join('\n');
+  }
+  ValidationErrors.prototype = Error.prototype;
+
+  /*
+   * Floor to the nearest interval of a given date object. E.g. 12:32 will be
+   * floored to 12:30 if the interval was 1000 * 60 * 5 = 5 minutes.
+   */
+
+  var roundTime = retval.roundTime = function roundTime(date, coeff) {
+    var retval = new Date(Math.floor(date.getTime() / coeff) * coeff);
+    return retval;
+  };
 
   // TODO: set a custom primary key for both the users and alis_device tables.
 
@@ -160,9 +159,9 @@ module.exports.define = function (sequelize) {
         var self = this;
         this.getEnergyConsumers({
           where: [ 'remote_consumer_id = ?', consumerID ]
-        }).complete(function (err, consumer) {
+        }).complete(function (err, consumers) {
           if (err) { return def.reject(err); }
-          if (consumer[0]) { return def.resolve(consumer); }
+          if (consumers[0]) { return def.resolve(consumers[0]); }
           EnergyConsumer.create({
             remote_consumer_id: consumerID
           }).complete(function (err, consumer) {
@@ -491,7 +490,7 @@ module.exports.define = function (sequelize) {
    */
 
   function createCollector(interval, nextGranularity) {
-    return function (granularModel, time, consumer_id) {
+    return function (granularModel, time, energy_consumer_id) {
       var self = this;
 
       var rounded = roundTime(time, interval);
@@ -507,17 +506,12 @@ module.exports.define = function (sequelize) {
         return promise.then(function () {}, fn);
       };
 
-      var whereClause =
-        typeof consumer_id != 'number' ? [
-          'time > ? && time <= ?',
-          rounded,
-          time
-        ] : [
-          'time > ? && time <= ? && consumer_id = ?',
-          rounded,
-          time,
-          consumer_id
-        ]
+      var whereClause = [
+        'time > ? && time <= ? && energy_consumer_id = ?',
+        rounded,
+        time,
+        energy_consumer_id
+      ];
 
       granularModel.model.findAll({
         where: whereClause
@@ -539,34 +533,21 @@ module.exports.define = function (sequelize) {
           statistics.kwh_max = kwhs.slice().sort()[kwhs.length - 1];
         }
 
-        var query = typeof consumer_id != 'number' ? {
-          order: 'time DESC'
-        } : {
+        var query = {
           order: 'time DESC',
-          where: [ 'consumer_id = ?', consumer_id ]
+          where: [ 'energy_consumer_id = ?', energy_consumer_id ]
         }
 
         self.find(query).success(function (unitData) {
           function collectNext(prevData) {
-            var parameters;
-            if (typeof consumer_id != 'number') {
-              parameters = [
-                {
-                  model: self,
-                  readingsPropertyName: 'kwh_sum'
-                },
-                prevData.values.time
-              ];
-            } else {
-              parameters = [
-                {
-                  model: self,
-                  readingsPropertyName: 'kwh_sum'
-                },
-                prevData.values.time,
-                consumer_id
-              ];
-            }
+            var parameters = [
+              {
+                model: self,
+                readingsPropertyName: 'kwh_sum'
+              },
+              prevData.values.time,
+              energy_consumer_id
+            ];
 
             nextGranularity
             .collectRecent.apply(nextGranularity, parameters)
@@ -586,13 +567,9 @@ module.exports.define = function (sequelize) {
               rounded.getTime() !==
                 roundTime(unitData.values.time, interval).getTime()
           ) {
-            var tableSpecificProperties =
-
-              typeof consumer_id != 'number' ? {
-                time: roundTime(time, interval)
-              } : {
+            var tableSpecificProperties = {
                 time: roundTime(time, interval),
-                consumer_id: consumer_id
+                energy_consumer_id: energy_consumer_id
               };
 
             self.create(
@@ -646,8 +623,8 @@ module.exports.define = function (sequelize) {
 
   function createModel(tableName, interval, nextGranularity) {
     return sequelize.define(tableName, {
-      consumer_id: {
-        type: Sequelize.INTEGER.UNSIGNED,
+      energy_consumer_id: {
+        type: Sequelize.INTEGER(11),
         validate: {
           notNull: true
         }
@@ -749,7 +726,7 @@ module.exports.define = function (sequelize) {
     sequelize.define('energy_consumptions', {
       // TODO: This is being defined from somewhere else as well. Have it be only
       //   defined from one place.
-      consumer_id: {
+      energy_consumer_id: {
         type: Sequelize.INTEGER(11),
         validate: {
           notNull: true
@@ -784,7 +761,7 @@ module.exports.define = function (sequelize) {
 
           // Look for the most recent entry.
           this.find({
-            where: [ 'consumer_id = ?', consumption.values.consumer_id ],
+            where: [ 'energy_consumer_id = ?', consumption.energy_consumer_id ],
             order: 'time DESC' })
           .success(function (prev) {
             if (prev) {
@@ -813,8 +790,8 @@ module.exports.define = function (sequelize) {
               model: this,
               readingsPropertyName: 'kwh_difference'
             }, 
-            consumption.values.time,
-            consumption.values.consumer_id
+            consumption.time,
+            consumption.energy_consumer_id
           )
           .success(function () {
             callback(null, consumption);
@@ -864,7 +841,7 @@ module.exports.define = function (sequelize) {
         device.findOrCreateEnergyConsumer(consumption.id)
           .then(function (consumer) {
             EnergyConsumptions.create({
-              consumer_id: consumer.id,
+              energy_consumer_id: consumer.id,
               time: data.time,
               kw: consumption.kw,
               kwh: consumption.kwh
