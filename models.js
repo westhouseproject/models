@@ -176,6 +176,173 @@ module.exports.define = function (sequelize) {
           });
         });
         return def.promise;
+      },
+
+      // TODO: document this.
+      // TODO: add a convenience feature to aggregate the data.
+      // TODO: rename this to `getEnergyConsumptions`.
+      getEnergyReadings: function (options) {
+        options = options || {};
+
+        options = _.assign({}, options);
+
+        // TODO: unit test this.
+        try {
+          var con = JSON.parse(options.consumers);
+          options.consumers = options.consumers.map(function (consumer) {
+            return consumer.toString();
+          });
+        } catch (e) {
+          options.consumers = [];
+        }
+
+        var defaults = {
+          from: new Date(),
+          interval: 60 * 60,
+          granularity: 'raw',
+          consumers: [],
+          summed: true
+        };
+
+        // Override the defaults, based on what the user specified.
+        options = _.assign(defaults, options);
+
+        var energyConsumersQuery = {};
+
+        if (options.consumers.length) {
+          energyConsumersQuery = {
+            where: [ Array(options.consumers.length)
+              .join('.')
+              .split('.')
+              .map(function () {
+                return 'remote_consumer_id = ?'
+              }).join(' OR ') ].concat(options.consumers)
+          };
+        }
+
+        this.getEnergyConsumers(energyConsumersQuery).complete(function (err, consumers) {
+          if (!consumers) { return def.resolve(null); }
+          if (options.granularity === 'raw') {
+            return (function () {
+              var energyConsumptionsQuery = {
+                where: [
+                  Array(consumers.length)
+                    .join('.')
+                    .split('.')
+                    .map(function () {
+                      return 'energy_consumer_id = ?'
+                    }).join(' OR ')
+                ].concat(consumers.map(
+                    function (consumer) {
+                      return consumer.id;
+                    }
+                  )
+                )
+              };
+              EnergyConsumptions.findAll(energyConsumptionsQuery).complete(function (err, consumptions) {
+                if (!consumptions) { return def.resolve(null); }
+                consumptions = _.groupBy(consumptions.map(function (consumption) {
+                  return {
+                    id: _.find(consumers, function (consumer) {
+                      return consumption.energy_consumer_id === consumer.id;
+                    }).remote_consumer_id,
+                    time: consumption.time,
+                    kw: consumption.kw,
+                    kwh: consumption.kwh,
+                    kwh_difference: consumption.kwh_difference
+                  }
+                }), function (consumption) {
+                  return consumption.id;
+                });
+                if (!options.summed) {
+                  return def.resolve(consumptions);
+                }
+                consumptions = Object.keys(consumptions).map(function (key) {
+                  return consumptions[key];
+                });
+                // TODO: handle the cases when only one consumer was selected.
+                consumptions = consumptions.reduce(function (prev, curr) {
+                  return prev.map(function (prevVal, i) {
+                    return {
+                      time: prevVal.time,
+                      kw: prevVal.kw + curr[i].kw,
+                      kwh: prevVal.kwh + curr[i].kwh,
+                      kwh_difference: prevVal.kwh_difference + curr[i].kwh_difference
+                    }
+                  })
+                });
+                def.resolve(consumptions);
+              });
+            })();
+          }
+
+          if (!seriesCollection[options.granularity]) {
+            return def.reject(new Error('Granularity currently not supported'));
+          }
+
+          return (function () {
+            var energyConsumptionsQuery = {
+              where: [
+                Array(consumers.length)
+                  .join('.')
+                  .split('.')
+                  .map(function () {
+                    return 'energy_consumer_id = ?'
+                  }).join(' OR ')
+              ].concat(consumers.map(
+                  function (consumer) {
+                    return consumer.id;
+                  }
+                )
+              )
+            };
+            seriesCollection[options.granularity].model.findAll(energyConsumptionsQuery).complete(function (err, consumptions) {
+              if (!consumptions) { return def.resolve(null); }
+              consumptions = _.groupBy(consumptions.map(function (consumption) {
+                var retval = {
+                  id: _.find(consumers, function (consumer) {
+                    return consumption.energy_consumer_id === consumer.id;
+                  }).remote_consumer_id,
+                  time: consumption.time,
+                  kwh_sum: consumption.kwh_sum,
+                  kwh_average: consumption.kwh_average,
+                  kwh_min: consumption.kwh_min,
+                  kwh_max: consumption.kwh_max
+                };
+                return retval;
+              }), function (consumption) {
+                return consumption.id;
+              });
+              if (!options.summed) {
+                return def.resolve(consumptions);
+              }
+              consumptions = Object.keys(consumptions).map(function (key) {
+                return consumptions[key];
+              });
+              // TODO: handle the cases when only one consumer was selected.
+              consumptions = consumptions.reduce(function (prev, curr) {
+                var mapped = prev.map(function (prevVal, i) {
+                  return {
+                    time: prevVal.time,
+                    kwh_sum: prevVal.kwh_sum + curr[i].kwh_sum,
+                    kwh_average: prevVal.kwh_average + curr[i].kwh_average,
+                    kwh_min: prevVal.kwh_min + curr[i].kwh_min,
+                    kwh_max: prevVal.kwh_max + curr[i].kwh_max
+                  };
+                });
+                mapped.forEach(function (val) {
+                  val.kwh_average = val.kwh_average / mapped.length;
+                });
+                return mapped;
+              });
+              def.resolve(consumptions);
+            });
+          })();
+        });
+
+        var def = bluebird.defer();
+
+        return def.promise;
       }
     },
     hooks: {
@@ -473,20 +640,6 @@ module.exports.define = function (sequelize) {
   });
 
   /*
-   * A common set of schema attributes that each of the granularities will share.
-   */
-
-  // TODO: extend from readingsCommon
-  var granularityCommon = {
-    
-  };
-
-  /*
-   * A common set of schema attributes that both the `energy_consumptions` *and*
-   * `energy_consumptions_totals` will share.
-   */
-
-  /*
    * Returns a function that will be used for merging multiple data points in a
    * higher granularity as well as notify other lower granular models that this
    * model had an update.
@@ -500,6 +653,8 @@ module.exports.define = function (sequelize) {
 
       var def = bluebird.defer();
       var promise = def.promise;
+
+      // TODO: remove these success and error extensions. Too much cruft.
 
       promise.success = function (fn) {
         return promise.then(fn);
