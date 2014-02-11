@@ -13,7 +13,6 @@ var _ = require('lodash');
  * invalid for inserting into the database.
  */
 
-
 module.exports.define = function (sequelize) {
 
   // This is where we will be storing our model classes.
